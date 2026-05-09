@@ -6,54 +6,102 @@ Designed to run on a **Raspberry Pi 5** within a **1 GB RAM** budget.
 
 ---
 
-## Features
+## Installation
 
-| Feature | Detail |
-|---|---|
-| Message harvesting | Paginates through all guild channels for a target user |
-| SQLite database | Stores every message with deduplication |
-| Markov chain model | Trains in seconds, <100 MB RAM — default backend |
-| llama.cpp backend | TinyLlama 1.1B Q4_K_M (~638 MB) — optional, better quality |
-| Random reply timer | Configurable interval, replies to a random recent message |
-| Full slash commands | Everything configurable without touching config files |
+### Prerequisites
+
+- Python 3.10+
+- Git
+- A Discord account with server admin access
 
 ---
 
-## Setup
-
-### 1. Clone & install
+### Step 1 — Clone the repo
 
 ```bash
-cd sanbot
-python -m venv .venv
-source .venv/bin/activate
+git clone https://github.com/Sojournification/SanBot.git
+cd SanBot
+```
+
+---
+
+### Step 2 — Create a virtual environment
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate        # Linux / macOS / Raspberry Pi
+# .venv\Scripts\activate         # Windows
+```
+
+---
+
+### Step 3 — Install dependencies
+
+```bash
 pip install -r requirements.txt
 ```
 
-### 2. Discord bot permissions
+---
 
-Create a bot at <https://discord.com/developers/applications> and enable:
+### Step 4 — Create a Discord bot
 
-- **Privileged intents**: `Message Content`, `Server Members`
-- **Bot permissions**: `Read Messages`, `Read Message History`, `Send Messages`
+1. Go to <https://discord.com/developers/applications> and click **New Application**
+2. Name it `SanBot`, then go to the **Bot** tab
+3. Click **Reset Token**, copy it somewhere safe
+4. Under **Privileged Gateway Intents**, enable:
+   - `Server Members Intent`
+   - `Message Content Intent`
+5. Go to **OAuth2 → URL Generator**, select:
+   - Scopes: `bot`, `applications.commands`
+   - Bot permissions: `Read Messages/View Channels`, `Read Message History`, `Send Messages`
+6. Open the generated URL and invite the bot to your server
 
-Copy your token into `.env`:
+---
+
+### Step 5 — Configure your token
+
+```bash
+cp .env.example .env
+```
+
+Open `.env` and paste your bot token:
 
 ```
 DISCORD_TOKEN=your_token_here
 ```
 
-### 3. Run
+---
+
+### Step 6 — Run the bot
 
 ```bash
 python bot.py
 ```
 
+You should see `SanBot online as SanBot#XXXX` in the console. Slash commands will sync to your server automatically on first start (may take up to 1 minute to appear).
+
+---
+
+## First-time setup in Discord
+
+Run these slash commands in order:
+
+```
+/setsource @user              — pick whose messages to harvest
+/addharvestchannel #general   — add channels to search (repeat for each)
+/setchannel #general          — set where SanBot will post replies
+/harvest                      — collect messages (may take a few minutes)
+/train                        — train the model on collected messages
+/setinterval 300 3600         — reply every 5–60 minutes at random
+```
+
+That's it. SanBot will now post replies on the random timer.
+
 ---
 
 ## Slash Commands
 
-All admin commands require the `Administrator` permission.
+All commands except `/sanstatus` require the `Administrator` permission.
 
 | Command | Description |
 |---|---|
@@ -61,66 +109,109 @@ All admin commands require the `Administrator` permission.
 | `/setchannel #channel` | Set the channel SanBot replies in |
 | `/addharvestchannel #channel` | Add a channel to the harvest scope |
 | `/removeharvestchannel #channel` | Remove a channel from the harvest scope |
-| `/harvest` | Start harvesting messages from the source user |
-| `/train` | Train the model on harvested messages |
-| `/setinterval <min> <max>` | Set reply interval in seconds |
-| `/togglereplies` | Pause / resume random replies |
+| `/harvest` | Collect messages from the source user |
+| `/train` | Train the model on collected messages |
+| `/setinterval <min> <max>` | Reply interval in seconds (e.g. `300 3600`) |
+| `/togglereplies` | Pause or resume random replies |
 | `/setbackend markov\|llama [path]` | Switch generation backend |
-| `/forcereply` | Trigger a reply immediately (testing) |
-| `/sanstatus` | Show current config and stats |
+| `/forcereply` | Trigger a reply right now (for testing) |
+| `/sanstatus` | Show current config and database stats |
 
 ---
 
-## LLM Backends
+## Optional — llama.cpp backend (better quality)
 
-### Markov chain (default)
+The default Markov backend trains instantly and uses ~10 MB RAM. For more natural responses, you can switch to TinyLlama via llama.cpp (~638 MB).
 
-- Trains directly on harvested messages
-- Uses ~2–10 MB RAM for typical Discord users
-- Starts generating immediately after `/train`
-- No extra downloads needed
-
-### llama.cpp (optional, better quality)
-
-Requires the TinyLlama model file (~638 MB):
+**1. Install the Python bindings**
 
 ```bash
-wget https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf
 pip install llama-cpp-python
 ```
 
-Then in Discord:
+> On Raspberry Pi, add `--extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu` if the build fails.
+
+**2. Download the model** (~638 MB)
+
+```bash
+wget https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf
 ```
-/setbackend llama model_path:/home/pi/sanbot/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf
+
+**3. Enable it in Discord**
+
+```
+/setbackend llama model_path:/home/pi/SanBot/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf
 /train
 ```
 
-The bot uses the harvested messages as a few-shot persona prompt — no GPU fine-tuning required.
+---
+
+## Running as a service on Raspberry Pi
+
+To keep SanBot running after you close your SSH session:
+
+```bash
+sudo nano /etc/systemd/system/sanbot.service
+```
+
+Paste:
+
+```ini
+[Unit]
+Description=SanBot Discord Bot
+After=network.target
+
+[Service]
+User=pi
+WorkingDirectory=/home/pi/SanBot
+ExecStart=/home/pi/SanBot/.venv/bin/python bot.py
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Then enable it:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable sanbot
+sudo systemctl start sanbot
+sudo systemctl status sanbot   # check it's running
+```
+
+Logs:
+
+```bash
+journalctl -u sanbot -f
+```
 
 ---
 
-## Raspberry Pi 5 RAM usage
+## RAM usage (Raspberry Pi 5)
 
 | Component | RAM |
 |---|---|
 | Python + discord.py | ~80 MB |
 | Markov model (typical) | ~5–20 MB |
-| SQLite (shared cache) | ~10 MB |
-| **Total (Markov backend)** | **~100–120 MB** |
+| SQLite | ~10 MB |
+| **Total — Markov backend** | **~100–120 MB** |
 | TinyLlama Q4_K_M | ~638 MB |
-| **Total (llama backend)** | **~750–780 MB** |
+| **Total — llama backend** | **~750–780 MB** |
 
-Both options fit comfortably under the 1 GB limit.
+Both options fit under the 1 GB budget.
 
 ---
 
 ## Data layout
 
 ```
-sanbot/
-├── data/
-│   ├── sanbot.db      # SQLite message database
-│   ├── markov.pkl     # Trained Markov model
-│   └── config.json    # Runtime configuration
+SanBot/
+├── data/                  # created automatically on first run
+│   ├── sanbot.db          # SQLite message database
+│   ├── markov.pkl         # trained Markov model
+│   └── config.json        # runtime configuration (channels, intervals, etc.)
+├── .env                   # your bot token (never commit this)
 └── ...
 ```
